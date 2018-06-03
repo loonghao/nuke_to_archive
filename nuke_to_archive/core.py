@@ -12,6 +12,9 @@ from os.path import join as joinpath
 # Import Nuke modules.
 import nuke
 
+# Archive types.
+ARCHIVE_TYPES = ['Read', 'ReadGeo2', 'ReadGeo']
+
 
 class NukeToArchive(threading.Thread):
 
@@ -28,7 +31,6 @@ class NukeToArchive(threading.Thread):
             cf.read(profile)
             self.source_dir = cf.get("root", "path")
         self.task = None
-        self.filter = ['Read', 'ReadGeo2', 'ReadGeo']
         self.base_name = os.path.basename(nuke_file).split('.')[0]
         self.pack_dir = joinpath(self.source_dir, self.base_name)
         self.nuke_version = nuke.NUKE_VERSION_STRING
@@ -49,15 +51,15 @@ class NukeToArchive(threading.Thread):
                     file_list.append(os.path.join(root, name))
 
         zf = zipfile.ZipFile(zip_file_name, "w", zipfile.zlib.DEFLATED, True)
-        prog_incr = 100.0 / len(file_list)
+        index = 100.0 / len(file_list)
         for i, tar in enumerate(file_list):
             if self.task.isCancelled():
                 nuke.executeInMainThread(nuke.message, args=('cancel',))
                 return
-            self.task.setProgress(int(i * prog_incr))
-            arcname = tar[len(dir_name):]
-            self.task.setMessage("compressed %s files.." % arcname)
-            zf.write(tar, arcname)
+            self.task.setProgress(int(i * index))
+            archive_name = tar[len(dir_name):]
+            self.task.setMessage("Compressed %s files.." % archive_name)
+            zf.write(tar, archive_name)
         zf.close()
         time.sleep(2)
 
@@ -71,23 +73,20 @@ class NukeToArchive(threading.Thread):
         return filepath.replace('\\', '/')
 
     def run(self):
-        self.task = nuke.ProgressTask("NukeToPacking....")
+        self.task = nuke.ProgressTask("Archive....")
         pack_dir = self.pack_dir + '/'
         pack_dir = self.unified_path_format(pack_dir)
         reads = [
             n for n in nuke.allNodes(recurseGroups=True)
-            if n.Class() in self.filter
+            if n.Class() in ARCHIVE_TYPES
         ]
-        prog_incr = 100.0 / len(reads)
+        process_bar_index = 100.0 / len(reads)
         for i, n in enumerate(reads):
             if self.task.isCancelled():
                 nuke.executeInMainThread(nuke.message, args=('cancel',))
                 return
-            self.task.setProgress(int(i * prog_incr))
+            self.task.setProgress(int(i * process_bar_index))
             file_ = n['file'].getValue()
-            # if n.Class == 'Read':
-            #     frame_first = n['first'].getValue()
-            #     frame_last = n['last'].getValue()
             self.task.setMessage("Copy %s files.." % n.fullName())
             if self.check_format(file_):
                 m = re.compile(r'(?P<root_dir>(\w:/))')
@@ -100,7 +99,6 @@ class NukeToArchive(threading.Thread):
                     new_dir = os.path.dirname(file_)
                     if not os.path.exists(new_dir):
                         os.makedirs(new_dir)
-                    print old_file, new_dir, 'single'
                     if not os.path.isfile(new_dir):
                         shutil.copy2(old_file, new_dir)
                     n['file'].setValue(file_.replace(pack_dir, self.pack_))
@@ -120,9 +118,6 @@ class NukeToArchive(threading.Thread):
                         if not os.path.exists(new_dir):
                             os.makedirs(new_dir)
                         # TODO need fix copy from node frame range
-                        # for frame in range(frame_first, frame_last):
-                        #     temp_file = '{0}.{1}.{2}'.format(file_name, frame, ext)
-                        #     print temp_file, new_dir
                         if not os.path.isfile(new_dir):
                             shutil.copy2(old_file, new_dir)
                 m = re.compile(r'(?P<root_dir>(\w:/)(.+?/))')
@@ -133,11 +128,9 @@ class NukeToArchive(threading.Thread):
         nuke.scriptSaveAs(
             joinpath(self.pack_dir, '{0}.nk'.format(self.base_name)),
             overwrite=True)
+
+        # Write the archive info.
         with open(joinpath(self.pack_dir, 'nuke2pack.info'), 'w') as f:
             f.write('Nuke: {0}'.format(self.nuke_version))
         self.to_zip()
         time.sleep(2)
-
-        # def run_to_pack(self):
-        #     threading.Thread(None, self.convert).start()
-

@@ -6,3 +6,10 @@ http://www.nukepedia.com/python/import/export/nuketopack
 
 Original video:
 https://vimeo.com/164600148
+
+
+Installation
+------------
+```
+python install.py
+```
